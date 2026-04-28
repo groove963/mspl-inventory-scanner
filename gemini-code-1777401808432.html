@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speed Inventory Scanner</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background: #f4f4f9; text-align: center; }
+        #reader { width: 100%; max-width: 500px; margin: auto; border-radius: 10px; overflow: hidden; }
+        .controls { margin: 20px 0; }
+        select, button { padding: 12px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; width: 100%; max-width: 300px; margin-bottom: 10px; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:disabled { background: #ccc; }
+        #status { font-size: 1.2em; font-weight: bold; margin-top: 10px; height: 30px; }
+        .count-badge { font-size: 3em; color: #007bff; margin: 10px 0; }
+        .duplicate { color: #dc3545; animation: shake 0.5s; }
+        @keyframes shake { 0% { transform: translateX(0); } 25% { transform: translateX(-5px); } 50% { transform: translateX(5px); } 100% { transform: translateX(0); } }
+    </style>
+</head>
+<body>
+
+    <h2>Inventory Batch Scanner</h2>
+    
+    <div class="controls">
+        <input type="text" id="articleCode" placeholder="Enter Product Code (e.g. ART-99)">
+        <div id="reader"></div>
+        <div class="count-badge" id="scanCount">0</div>
+        <div id="status">Ready to Scan</div>
+    </div>
+
+    <button id="uploadBtn" onclick="uploadData()" disabled>Upload Batch to Google Sheets</button>
+
+    <script>
+        const scriptUrl = "YOUR_APPS_SCRIPT_URL"; // PASTE YOUR URL HERE
+        let scanBuffer = new Set();
+        let isProcessing = false;
+
+        function onScanSuccess(decodedText) {
+            if (isProcessing) return;
+            const statusEl = document.getElementById('status');
+            const article = document.getElementById('articleCode').value;
+
+            if (!article) {
+                statusEl.innerText = "⚠️ Enter Product Code First!";
+                statusEl.style.color = "orange";
+                return;
+            }
+
+            if (scanBuffer.has(decodedText)) {
+                // DUPLICATE DETECTED
+                statusEl.innerText = "❌ ALREADY SCANNED!";
+                statusEl.className = "duplicate";
+                navigator.vibrate(200); // Buzz phone
+            } else {
+                // SUCCESS
+                scanBuffer.add(decodedText);
+                statusEl.innerText = "✅ Added: " + decodedText.split(',')[0];
+                statusEl.className = "";
+                statusEl.style.color = "green";
+                document.getElementById('scanCount').innerText = scanBuffer.size;
+                document.getElementById('uploadBtn').disabled = false;
+                
+                // Fast reset for next scan
+                isProcessing = true;
+                setTimeout(() => { isProcessing = false; }, 800); 
+            }
+        }
+
+        const html5QrCode = new html5Qrcode("reader");
+        html5QrCode.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 }, onScanSuccess);
+
+        async function uploadData() {
+            const article = document.getElementById('articleCode').value;
+            const btn = document.getElementById('uploadBtn');
+            btn.innerText = "Uploading...";
+            btn.disabled = true;
+
+            const payload = {
+                articleCode: article,
+                scans: Array.from(scanBuffer)
+            };
+
+            try {
+                const response = await fetch(scriptUrl, {
+                    method: 'POST',
+                    mode: 'no-cors', // Important for Apps Script
+                    cache: 'no-cache',
+                    body: JSON.stringify(payload)
+                });
+                
+                alert("Upload Sent! Check Google Sheets.");
+                scanBuffer.clear();
+                document.getElementById('scanCount').innerText = "0";
+                document.getElementById('status').innerText = "Batch Saved Successfully";
+            } catch (error) {
+                alert("Upload failed. Check internet connection.");
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
